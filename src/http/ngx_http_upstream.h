@@ -68,6 +68,7 @@ typedef struct {
     ngx_str_t                       *peer;
 
     ngx_atomic_uint_t                connection_number;
+    ngx_uint_t                       connection_requests;
 } ngx_http_upstream_state_t;
 
 

@@ -402,6 +402,10 @@ static ngx_http_variable_t  ngx_http_upstream_vars[] = {
       ngx_http_upstream_connection_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
+    { ngx_string("upstream_connection_requests"), NULL,
+      ngx_http_upstream_connection_variable, 1,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
 #if (NGX_HTTP_CACHE)
 
     { ngx_string("upstream_cache_status"), NULL,
@@ -1812,6 +1816,7 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u,
     if (u->state->connect_time == (ngx_msec_t) -1) {
         u->state->connect_time = ngx_current_msec - u->state->response_time;
         u->state->connection_number = c->number;
+        u->state->connection_requests = ++c->requests;
     }
 
     if (!u->request_sent && ngx_http_upstream_test_connect(c) != NGX_OK) {
@@ -5317,7 +5322,11 @@ ngx_http_upstream_connection_variable(ngx_http_request_t *r,
         return NGX_OK;
     }
 
-    len = r->upstream_states->nelts * (NGX_ATOMIC_T_LEN + 2);
+    if (data == 1) {
+        len = r->upstream_states->nelts * (NGX_INT_T_LEN + 2);
+    } else {
+        len = r->upstream_states->nelts * (NGX_ATOMIC_T_LEN + 2);
+    }
 
     p = ngx_pnalloc(r->pool, len);
     if (p == NULL) {
@@ -5331,7 +5340,11 @@ ngx_http_upstream_connection_variable(ngx_http_request_t *r,
 
     for ( ;; ) {
 
-        p = ngx_sprintf(p, "%uA", state[i].connection_number);
+        if (data == 1) {
+            p = ngx_sprintf(p, "%ui", state[i].connection_requests);
+        } else {
+            p = ngx_sprintf(p, "%uA", state[i].connection_number);
+        }
 
         if (++i == r->upstream_states->nelts) {
             break;
