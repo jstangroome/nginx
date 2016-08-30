@@ -161,6 +161,9 @@ static ngx_int_t ngx_http_upstream_response_time_variable(ngx_http_request_t *r,
 static ngx_int_t ngx_http_upstream_response_length_variable(
     ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
 
+static ngx_int_t ngx_http_upstream_connection_variable(
+    ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
+
 static char *ngx_http_upstream(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy);
 static char *ngx_http_upstream_server(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
@@ -393,6 +396,10 @@ static ngx_http_variable_t  ngx_http_upstream_vars[] = {
 
     { ngx_string("upstream_bytes_received"), NULL,
       ngx_http_upstream_response_length_variable, 1,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_string("upstream_connection"), NULL,
+      ngx_http_upstream_connection_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
 #if (NGX_HTTP_CACHE)
@@ -1804,6 +1811,7 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u,
 
     if (u->state->connect_time == (ngx_msec_t) -1) {
         u->state->connect_time = ngx_current_msec - u->state->response_time;
+        u->state->connection_number = c->number;
     }
 
     if (!u->request_sent && ngx_http_upstream_test_connect(c) != NGX_OK) {
@@ -5263,6 +5271,67 @@ ngx_http_upstream_response_length_variable(ngx_http_request_t *r,
         } else {
             p = ngx_sprintf(p, "%O", state[i].response_length);
         }
+
+        if (++i == r->upstream_states->nelts) {
+            break;
+        }
+
+        if (state[i].peer) {
+            *p++ = ',';
+            *p++ = ' ';
+
+        } else {
+            *p++ = ' ';
+            *p++ = ':';
+            *p++ = ' ';
+
+            if (++i == r->upstream_states->nelts) {
+                break;
+            }
+
+            continue;
+        }
+    }
+
+    v->len = p - v->data;
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_upstream_connection_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    u_char                     *p;
+    size_t                      len;
+    ngx_uint_t                  i;
+    ngx_http_upstream_state_t  *state;
+
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+
+    if (r->upstream_states == NULL || r->upstream_states->nelts == 0) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    len = r->upstream_states->nelts * (NGX_ATOMIC_T_LEN + 2);
+
+    p = ngx_pnalloc(r->pool, len);
+    if (p == NULL) {
+        return NGX_ERROR;
+    }
+
+    v->data = p;
+
+    i = 0;
+    state = r->upstream_states->elts;
+
+    for ( ;; ) {
+
+        p = ngx_sprintf(p, "%uA", state[i].connection_number);
 
         if (++i == r->upstream_states->nelts) {
             break;
